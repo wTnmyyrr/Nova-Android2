@@ -30,7 +30,7 @@ jobs:
           python3 -m py_compile scripts/patch_android_build.py
           python3 scripts/patch_android_build.py
           echo "PROJECT_DIR=/tmp/nova-src/NOVA_v4.0_Complete" >> "$GITHUB_ENV"
-          curl --fail --silent --show-error https://nova-ai-brain.hy1009568.workers.dev/health
+          # Backend health check is optional; APK can build while the Worker is waking up.
 
       - name: Build Debug APK
         run: |
