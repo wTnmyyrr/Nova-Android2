@@ -213,8 +213,8 @@ if "fun deviceControl(command:String):String" not in k:
      else { val n=Regex("(\\d{1,3})").find(c)?.groupValues?.get(1)?.toIntOrNull(); val cur=Settings.System.getInt(context.contentResolver,Settings.System.SCREEN_BRIGHTNESS,128); val value=(n?.coerceIn(0,100)?.times(255)?.div(100) ?: (cur+if(c.contains("down")||c.contains("kam")) -25 else 25)).coerceIn(10,255); Settings.System.putInt(context.contentResolver,Settings.System.SCREEN_BRIGHTNESS,value); "☀️ Screen brightness update kar di." }
     }
     c.contains("wifi")||c.contains("wi fi")||c.contains("internet") -> { val i=if(Build.VERSION.SDK_INT>=29) Intent(Settings.Panel.ACTION_WIFI) else Intent(Settings.ACTION_WIFI_SETTINGS); i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); context.startActivity(i); "📶 Wi-Fi settings panel khol diya. Android security ke kaaran toggle aap confirm karein." }
-    c.contains("bluetooth") -> { val i=if(Build.VERSION.SDK_INT>=29) Intent(Settings.Panel.ACTION_BLUETOOTH) else Intent(Settings.ACTION_BLUETOOTH_SETTINGS); i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); context.startActivity(i); "🟦 Bluetooth panel khol diya. Toggle aap confirm karein." }
-    c.contains("hotspot") -> { context.startActivity(Intent(Settings.ACTION_TETHER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); "📡 Hotspot settings khol di." }
+    c.contains("bluetooth") -> { val i=if(Build.VERSION.SDK_INT>=29) Intent(Settings.ACTION_BLUETOOTH_SETTINGS) else Intent(Settings.ACTION_BLUETOOTH_SETTINGS); i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); context.startActivity(i); "🟦 Bluetooth panel khol diya. Toggle aap confirm karein." }
+    c.contains("hotspot") -> { context.startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); "📡 Hotspot settings khol di." }
     c.contains("airplane") -> { context.startActivity(Intent(Settings.ACTION_AIRPLANE_MODE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); "✈️ Airplane mode settings khol di." }
     c.contains("screenshot") -> "📸 Android privacy ke kaaran silent screenshot nahi le sakti. Power + Volume Down use karein."
     else -> "⚙️ Is device control ke liye supported system panel nahi mila."
