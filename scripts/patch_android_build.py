@@ -157,3 +157,37 @@ HTML.write_text(s,encoding="utf-8")
 print("NOVA patch complete")
 
 # Rebuild verification: dynamic app discovery and Hey NOVA service integration.
+
+# Add remaining Android controls that are available without privileged/root access.
+bp=JAVA/"NovaAndroidBridge.kt"
+k=bp.read_text(encoding="utf-8")
+if "fun adjustVolume(" not in k:
+ k=k.replace("import android.hardware.camera2.CameraManager","import android.hardware.camera2.CameraManager\nimport android.media.AudioManager")
+ methods=''' @JavascriptInterface fun adjustVolume(direction:String):Boolean {
+  return try { val am=context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+   val a=when(direction.lowercase()){"up"->AudioManager.ADJUST_RAISE;"down"->AudioManager.ADJUST_LOWER;"mute"->AudioManager.ADJUST_MUTE;"unmute"->AudioManager.ADJUST_UNMUTE;else->return false}
+   am.adjustStreamVolume(AudioManager.STREAM_MUSIC,a,AudioManager.FLAG_SHOW_UI);true
+  } catch(_:Exception){false}
+ }
+ @JavascriptInterface fun openSystemPanel(panel:String):Boolean {
+  val action=when(panel.lowercase()){"wifi"->if(Build.VERSION.SDK_INT>=29)Settings.Panel.ACTION_WIFI else Settings.ACTION_WIFI_SETTINGS;"bluetooth"->Settings.ACTION_BLUETOOTH_SETTINGS;"brightness"->Settings.ACTION_DISPLAY_SETTINGS;"sound"->Settings.ACTION_SOUND_SETTINGS;else->Settings.ACTION_SETTINGS}
+  return try{context.startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));true}catch(_:Exception){false}
+ }
+'''
+ k=k.replace(" @JavascriptInterface fun startWakeWordService()",methods+" @JavascriptInterface fun startWakeWordService()",1)
+bp.write_text(k,encoding="utf-8")
+s=HTML.read_text(encoding="utf-8")
+old='''  if (/\\b(wifi|wi-fi|bluetooth|hotspot|airplane|brightness|volume|screenshot)\\b/i.test(lower)) {
+    return { reply: '⚙️ Android Chrome security ke kaaran browser system toggles/screenshot nahi le sakta — Native Android Companion APK mein supported hoga.' };
+  }'''
+new='''  if (/\\b(volume up|increase volume|awaaz badhao|volume badhao)\\b/i.test(lower) && window.NovaAndroidBridge) return {reply:window.NovaAndroidBridge.adjustVolume('up')?'🔊 Volume badha diya ✓':'Volume unavailable'};
+  if (/\\b(volume down|decrease volume|awaaz kam|volume kam)\\b/i.test(lower) && window.NovaAndroidBridge) return {reply:window.NovaAndroidBridge.adjustVolume('down')?'🔉 Volume kam kar diya ✓':'Volume unavailable'};
+  if (/\\b(mute|unmute)\\b/i.test(lower) && window.NovaAndroidBridge) {const d=/unmute/i.test(lower)?'unmute':'mute';return {reply:window.NovaAndroidBridge.adjustVolume(d)?'🔊 Volume updated':'Volume unavailable'};}
+  if (/\\b(wifi|wi-fi|bluetooth|hotspot|airplane|brightness|display settings|sound settings)\\b/i.test(lower) && window.NovaAndroidBridge) {
+    const p=/bluetooth/i.test(lower)?'bluetooth':/wifi|wi-fi|hotspot|airplane/i.test(lower)?'wifi':/sound/i.test(lower)?'sound':'brightness';
+    return {reply:window.NovaAndroidBridge.openSystemPanel(p)?'⚙️ Android control panel khol diya. Yahan se setting change karein.':'System panel nahi khul paya.'};
+  }
+  if (/\\b(screenshot|screen shot)\\b/i.test(lower)) return {reply:'📸 Android security silent screenshot restrict karti hai; phone ka screenshot gesture use karein.'};'''
+if old in s:s=s.replace(old,new,1)
+HTML.write_text(s,encoding="utf-8")
+print("Added volume controls and Android settings panels")
