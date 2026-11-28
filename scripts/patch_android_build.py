@@ -155,3 +155,5 @@ window.onNovaWakeCommand=command=>{if(command){input.value=command;send();}else 
 if "window.onNovaWakeCommand=command" not in s:s=s.replace("document.getElementById('testVoiceBtn').onclick = () => {",events+"document.getElementById('testVoiceBtn').onclick = () => {",1)
 HTML.write_text(s,encoding="utf-8")
 print("NOVA patch complete")
+
+# Rebuild verification: dynamic app discovery and Hey NOVA service integration.
