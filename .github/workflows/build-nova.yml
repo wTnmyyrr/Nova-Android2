@@ -1,4 +1,3 @@
-
 name: Build NOVA APK
 
 on:
@@ -9,7 +8,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -25,33 +23,29 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Find Gradle project and build APK
+      - name: Prepare project
         run: |
-          FILE=$(find . -name settings.gradle -o -name settings.gradle.kts | head -n 1)
-
-          if [ -z "$FILE" ]; then
-            echo "ERROR: settings.gradle not found!"
-            find . -maxdepth 4 -type f | head -100
-            exit 1
+          if [ -f NOVA_FINAL_FIXED.zip ]; then
+            unzip -q NOVA_FINAL_FIXED.zip -d /tmp/nova-src
+            PROJECT_DIR=/tmp/nova-src/NOVA_Android_Project
+          elif [ -f NOVA_Android_Project/settings.gradle ]; then
+            PROJECT_DIR=NOVA_Android_Project
+          else
+            FILE=$(find . -name settings.gradle -o -name settings.gradle.kts | head -n 1)
+            test -n "$FILE" || { echo "Gradle project not found"; exit 1; }
+            PROJECT_DIR=$(dirname "$FILE")
           fi
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Building from $PROJECT_DIR"
 
-          DIR=$(dirname "$FILE")
-          echo "Gradle project found at: $DIR"
-
-          cd "$DIR"
+      - name: Build Debug APK
+        run: |
+          cd "$PROJECT_DIR"
           gradle assembleDebug --stacktrace
-
-          APK=$(find . -path '*/build/outputs/apk/debug/*.apk' | head -n 1)
-
-          if [ -z "$APK" ]; then
-            echo "APK not generated!"
-            exit 1
-          fi
-
-          echo "APK_PATH=$DIR/$APK" >> "$GITHUB_ENV"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: NOVA-AI-Debug-APK
-          path: ${{ env.APK_PATH }}
+          path: \${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
