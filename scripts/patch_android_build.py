@@ -438,3 +438,25 @@ if mic_start >= 0:
             s = s[:mic_start] + native + s[mic_end:]
             HTML.write_text(s,encoding="utf-8")
             print("Native Android mic handler installed")
+
+
+# Final deterministic native-mic injection using newline character lookup.
+s = HTML.read_text(encoding="utf-8")
+nl = chr(10)
+mic_start = s.find("micBtn.onclick = () => {")
+if mic_start >= 0:
+    mic_end = s.find(nl + "};", mic_start)
+    if mic_end >= 0:
+        mic_end += 3
+        old_mic = s[mic_start:mic_end]
+        if "startVoiceInput(state.lang" not in old_mic:
+            prefix = "micBtn.onclick = () => {"
+            body = old_mic[len(prefix):-3]
+            native = prefix + nl + """  if (window.NovaAndroidBridge && typeof window.NovaAndroidBridge.startVoiceInput === 'function') {
+    if (window.showNovaListeningPopup) window.showNovaListeningPopup('NOVA is listening');
+    window.NovaAndroidBridge.startVoiceInput(state.lang === 'en' ? 'en' : 'hi');
+    return;
+  }""" + body + nl + "};"
+            s = s[:mic_start] + native + s[mic_end:]
+            HTML.write_text(s,encoding="utf-8")
+            print("Native mic bridge confirmed in HTML")
