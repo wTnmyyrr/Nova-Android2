@@ -238,3 +238,78 @@ new_device="""  if (/\\b(wifi|wi-fi|internet|bluetooth|hotspot|airplane|brightne
 if old_device in s:s=s.replace(old_device,new_device,1)
 HTML.write_text(s,encoding="utf-8")
 print("Added volume, brightness and Android system panel controls")
+
+
+# NOVA voice reliability + wake popup patch (2026-11-28)
+# Keep permission requests asynchronous and resume the pending voice action after approval.
+activity_file = JAVA/"MainActivity.kt"
+activity_code = r'''package com.nova.companion
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Bundle
+import android.speech.RecognizerIntent
+import android.webkit.*
+import androidx.activity.ComponentActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import org.json.JSONObject
+class MainActivity:ComponentActivity(){
+ private lateinit var webView:WebView
+ private var pendingVoiceLanguage:String?=null
+ private var recognitionInProgress=false
+ override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState)
+  webView=WebView(this)
+  webView.settings.javaScriptEnabled=true;webView.settings.domStorageEnabled=true
+  webView.settings.mediaPlaybackRequiresUserGesture=false;webView.settings.allowFileAccess=true
+  webView.webChromeClient=object:WebChromeClient(){override fun onPermissionRequest(r:PermissionRequest){runOnUiThread{r.grant(r.resources)}}}
+  webView.webViewClient=object:WebViewClient(){override fun shouldOverrideUrlLoading(v:WebView?,r:WebResourceRequest?):Boolean{val u=r?.url?.toString()?:return false;if(u.startsWith("file:///android_asset/"))return false;try{startActivity(Intent(Intent.ACTION_VIEW,android.net.Uri.parse(u)))}catch(_:Exception){};return true}}
+  webView.addJavascriptInterface(NovaAndroidBridge(this),"NovaAndroidBridge")
+  setContentView(webView);webView.loadUrl("file:///android_asset/index.html")
+  if(intent?.getBooleanExtra("auto_listen",false)==true)webView.postDelayed({handleWake(intent)},850)
+ }
+ fun requestMicPermission(){if(ContextCompat.checkSelfPermission(this,Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED)ActivityCompat.requestPermissions(this,arrayOf(Manifest.permission.RECORD_AUDIO),100)}
+ fun requestCameraPermission(){if(ContextCompat.checkSelfPermission(this,Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED)ActivityCompat.requestPermissions(this,arrayOf(Manifest.permission.CAMERA),303)}
+ override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray){super.onRequestPermissionsResult(requestCode,permissions,grantResults);if(requestCode==100){if(grantResults.isNotEmpty()&&grantResults[0]==PackageManager.PERMISSION_GRANTED){val lang=pendingVoiceLanguage;pendingVoiceLanguage=null;if(lang!=null)startRecognition(lang)}else{pendingVoiceLanguage=null;runOnUiThread{webView.evaluateJavascript("window.onNovaSpeechError && window.onNovaSpeechError()",null)}}}}
+ override fun onNewIntent(i:Intent){super.onNewIntent(i);setIntent(i);handleWake(i)}
+ private fun handleWake(i:Intent?){if(i?.getBooleanExtra("auto_listen",false)!=true)return;val c=i.getStringExtra("wake_command").orEmpty();if(c.isNotBlank())webView.evaluateJavascript("window.onNovaWakeCommand && window.onNovaWakeCommand("+JSONObject.quote(c)+")",null)else startNovaVoiceRecognition("hi")}
+ fun startNovaVoiceRecognition(language:String){if(recognitionInProgress)return;if(ContextCompat.checkSelfPermission(this,Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){pendingVoiceLanguage=language;requestMicPermission();return};startRecognition(language)}
+ private fun startRecognition(language:String){if(recognitionInProgress)return;try{val i=Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply{putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);putExtra(RecognizerIntent.EXTRA_LANGUAGE,if(language=="en")"en-IN":"hi-IN");putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE,if(language=="en")"en-IN":"hi-IN");putExtra(RecognizerIntent.EXTRA_MAX_RESULTS,3);putExtra(RecognizerIntent.EXTRA_PROMPT,"NOVA sun rahi hai — boliye")};recognitionInProgress=true;startActivityForResult(i,2026)}catch(_:Exception){recognitionInProgress=false;webView.evaluateJavascript("window.onNovaSpeechError && window.onNovaSpeechError()",null)}}
+ @Deprecated("Deprecated in Android") override fun onActivityResult(req:Int,res:Int,data:Intent?){super.onActivityResult(req,res,data);if(req==2026){recognitionInProgress=false;val said=if(res==RESULT_OK)data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull() else null;val js=if(said.isNullOrBlank())"window.onNovaSpeechError && window.onNovaSpeechError()" else "window.onNovaSpeechResult && window.onNovaSpeechResult("+JSONObject.quote(said)+")";webView.evaluateJavascript(js,null)}}
+ @Deprecated("Deprecated in Android") override fun onBackPressed(){if(::webView.isInitialized&&webView.canGoBack())webView.goBack()else super.onBackPressed()}
+}
+'''
+activity_file.write_text(activity_code,encoding="utf-8")
+
+# Inject an animated, clearly visible listening card after the native wake event.
+s = HTML.read_text(encoding="utf-8")
+overlay = r"""
+<style>
+#novaWakePopup{position:fixed;z-index:2147483000;top:calc(env(safe-area-inset-top) + 14px);left:50%;transform:translate(-50%,-18px) scale(.94);width:min(330px,calc(100vw - 34px));padding:13px 16px;border:1px solid rgba(177,130,255,.48);border-radius:22px;background:rgba(19,15,34,.96);box-shadow:0 12px 42px rgba(0,0,0,.38),0 0 28px rgba(153,93,255,.22);color:#fff;display:flex;align-items:center;gap:12px;opacity:0;pointer-events:none;transition:opacity .24s ease,transform .28s cubic-bezier(.2,.8,.2,1);backdrop-filter:blur(18px)}
+#novaWakePopup.show{opacity:1;transform:translate(-50%,0) scale(1)}
+#novaWakePopup .nova-pulse{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(135deg,#9a62ff,#ed82d8);box-shadow:0 0 0 0 rgba(183,112,255,.55);animation:novaPulse 1.5s infinite}
+#novaWakePopup .nova-pulse:after{content:' ';width:11px;height:11px;border-radius:50%;background:white;box-shadow:0 0 13px white}
+#novaWakePopup .nova-state{font-size:14px;font-weight:700;letter-spacing:.2px}
+#novaWakePopup .nova-sub{font-size:11px;opacity:.72;margin-top:3px}
+@keyframes novaPulse{70%{box-shadow:0 0 0 13px rgba(183,112,255,0)}100%{box-shadow:0 0 0 0 rgba(183,112,255,0)}}
+</style>
+<div id="novaWakePopup" aria-live="polite"><div class="nova-pulse"></div><div><div class="nova-state">NOVA is listening</div><div class="nova-sub">Boliye, main sun rahi hoon…</div></div></div>
+<script>
+(function(){
+ const popup=()=>document.getElementById('novaWakePopup');
+ window.showNovaListeningPopup=function(state){const p=popup();if(!p)return;const a=p.querySelector('.nova-state'),b=p.querySelector('.nova-sub');a.textContent=state||'NOVA is listening';b.textContent='Boliye, main sun rahi hoon…';p.classList.add('show');};
+ window.hideNovaListeningPopup=function(){const p=popup();if(p)p.classList.remove('show');};
+ window.onNovaSpeechResult=function(text){window.hideNovaListeningPopup();const i=document.getElementById('prompt');if(i)i.value=text;const sendBtn=document.getElementById('send');if(sendBtn)sendBtn.click();else if(typeof sendMessage==='function')sendMessage();};
+ window.onNovaSpeechError=function(){window.hideNovaListeningPopup();const h=document.getElementById('hint');if(h)h.textContent='Mic start nahi hua. Permission check karke dobara try karein.';};
+ const oldWake=window.onNovaWakeCommand;
+ window.onNovaWakeCommand=function(command){window.showNovaListeningPopup();if(command){const i=document.getElementById('prompt');if(i)i.value=command;const sendBtn=document.getElementById('send');if(sendBtn)sendBtn.click();else if(typeof sendMessage==='function')sendMessage();window.hideNovaListeningPopup();}else if(oldWake)oldWake(command);else if(window.NovaAndroidBridge)window.NovaAndroidBridge.startVoiceInput('hi');};
+})();
+</script>
+"""
+if 'id="novaWakePopup"' not in s:
+    s=s.replace("</body>",overlay+"\n</body>")
+# Make the manual mic button show an explicit state while Android's native recognizer is open.
+if "novaMicListening" not in s:
+    s=s.replace("window.onNovaSpeechResult=function(text){", "window.novaMicListening=function(){window.showNovaListeningPopup('NOVA is listening');};\nwindow.onNovaSpeechResult=function(text){",1)
+HTML.write_text(s,encoding="utf-8")
+print("Applied NOVA mic permission, speech callback and wake popup fixes")
