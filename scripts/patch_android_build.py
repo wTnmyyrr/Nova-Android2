@@ -197,7 +197,7 @@ hp.write_text(s, encoding="utf-8")
 
 bp = root / "app/src/main/java/com/nova/companion/NovaAndroidBridge.kt"
 b = bp.read_text(encoding="utf-8")
-marker = "    @JavascriptInterface\n    fun openApp(appKey: String): Boolean {"
+marker = "    @JavascriptInterface fun openApp(appKey: String): Boolean {"
 methods = '''    @JavascriptInterface
     fun playYouTube(url: String) {
         try {
