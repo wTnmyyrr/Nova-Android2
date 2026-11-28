@@ -313,3 +313,87 @@ if "novaMicListening" not in s:
     s=s.replace("window.onNovaSpeechResult=function(text){", "window.novaMicListening=function(){window.showNovaListeningPopup('NOVA is listening');};\nwindow.onNovaSpeechResult=function(text){",1)
 HTML.write_text(s,encoding="utf-8")
 print("Applied NOVA mic permission, speech callback and wake popup fixes")
+
+
+# Kotlin compatibility correction for ComponentActivity permission launcher.
+activity_code = r'''package com.nova.companion
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Bundle
+import android.speech.RecognizerIntent
+import android.webkit.*
+import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import org.json.JSONObject
+class MainActivity:ComponentActivity(){
+ private lateinit var webView:WebView
+ private var pendingVoiceLanguage:String?=null
+ private var recognitionInProgress=false
+ private val micPermissionLauncher=registerForActivityResult(ActivityResultContracts.RequestPermission()){granted->
+  if(granted){val lang=pendingVoiceLanguage;pendingVoiceLanguage=null;if(lang!=null)startRecognition(lang)}
+  else{pendingVoiceLanguage=null;if(::webView.isInitialized)webView.evaluateJavascript("window.onNovaSpeechError && window.onNovaSpeechError()",null)}
+ }
+ override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState)
+  webView=WebView(this)
+  webView.settings.javaScriptEnabled=true
+  webView.settings.domStorageEnabled=true
+  webView.settings.mediaPlaybackRequiresUserGesture=false
+  webView.settings.allowFileAccess=true
+  webView.webChromeClient=object:WebChromeClient(){override fun onPermissionRequest(r:PermissionRequest){runOnUiThread{r.grant(r.resources)}}}
+  webView.webViewClient=object:WebViewClient(){override fun shouldOverrideUrlLoading(v:WebView?,r:WebResourceRequest?):Boolean{
+   val u=r?.url?.toString()?:return false
+   if(u.startsWith("file:///android_asset/"))return false
+   try{startActivity(Intent(Intent.ACTION_VIEW,android.net.Uri.parse(u)))}catch(_:Exception){}
+   return true
+  }}
+  webView.addJavascriptInterface(NovaAndroidBridge(this),"NovaAndroidBridge")
+  setContentView(webView)
+  webView.loadUrl("file:///android_asset/index.html")
+  if(intent?.getBooleanExtra("auto_listen",false)==true){webView.postDelayed({handleWake(intent)},850)}
+  Unit
+ }
+ fun requestMicPermission(){if(ContextCompat.checkSelfPermission(this,Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED)micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)}
+ fun requestCameraPermission(){if(ContextCompat.checkSelfPermission(this,Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED)ActivityCompatCompat.request(this,Manifest.permission.CAMERA)}
+ override fun onNewIntent(i:Intent){super.onNewIntent(i);setIntent(i);handleWake(i)}
+ private fun handleWake(i:Intent?){if(i?.getBooleanExtra("auto_listen",false)!=true)return
+  val c=i.getStringExtra("wake_command").orEmpty()
+  if(c.isNotBlank())webView.evaluateJavascript("window.onNovaWakeCommand && window.onNovaWakeCommand("+JSONObject.quote(c)+")",null)
+  else startNovaVoiceRecognition("hi")
+ }
+ fun startNovaVoiceRecognition(language:String){if(recognitionInProgress)return
+  if(ContextCompat.checkSelfPermission(this,Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){pendingVoiceLanguage=language;requestMicPermission();return}
+  startRecognition(language)
+ }
+ private fun startRecognition(language:String){if(recognitionInProgress)return
+  try{
+   val i=Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+   i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+   i.putExtra(RecognizerIntent.EXTRA_LANGUAGE,if(language=="en")"en-IN" else "hi-IN")
+   i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE,if(language=="en")"en-IN" else "hi-IN")
+   i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS,3)
+   i.putExtra(RecognizerIntent.EXTRA_PROMPT,"NOVA sun rahi hai - boliye")
+   recognitionInProgress=true
+   startActivityForResult(i,2026)
+  }catch(_:Exception){recognitionInProgress=false;webView.evaluateJavascript("window.onNovaSpeechError && window.onNovaSpeechError()",null)}
+ }
+ @Deprecated("Deprecated in Android")
+ override fun onActivityResult(req:Int,res:Int,data:Intent?){
+  super.onActivityResult(req,res,data)
+  if(req==2026){
+   recognitionInProgress=false
+   val said=if(res==RESULT_OK)data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull() else null
+   if(said.isNullOrBlank())webView.evaluateJavascript("window.onNovaSpeechError && window.onNovaSpeechError()",null)
+   else webView.evaluateJavascript("window.onNovaSpeechResult && window.onNovaSpeechResult("+JSONObject.quote(said)+")",null)
+  }
+ }
+ @Deprecated("Deprecated in Android")
+ override fun onBackPressed(){if(::webView.isInitialized&&webView.canGoBack())webView.goBack()else super.onBackPressed()}
+}
+'''
+# A tiny helper keeps camera permission handling independent of the mic launcher.
+if "private object ActivityCompatCompat" not in activity_code:
+ activity_code=activity_code.replace("class MainActivity:ComponentActivity(){","private object ActivityCompatCompat { fun request(a:android.app.Activity,p:String){androidx.core.app.ActivityCompat.requestPermissions(a,arrayOf(p),303)} }\nclass MainActivity:ComponentActivity(){")
+activity_file.write_text(activity_code,encoding="utf-8")
+print("Corrected ComponentActivity permission launcher and voice-result callback")
