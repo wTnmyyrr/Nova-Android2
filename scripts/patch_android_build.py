@@ -397,3 +397,22 @@ if "private object ActivityCompatCompat" not in activity_code:
  activity_code=activity_code.replace("class MainActivity:ComponentActivity(){","private object ActivityCompatCompat { fun request(a:android.app.Activity,p:String){androidx.core.app.ActivityCompat.requestPermissions(a,arrayOf(p),303)} }\nclass MainActivity:ComponentActivity(){")
 activity_file.write_text(activity_code,encoding="utf-8")
 print("Corrected ComponentActivity permission launcher and voice-result callback")
+
+
+# Route the Android mic button through the native RecognizerIntent bridge.
+s = HTML.read_text(encoding="utf-8")
+import re
+mic_match = re.search(r"micBtn\\.onclick = \\(\\) => \\{[\\s\\S]*?\\n\\};", s)
+if mic_match and "startVoiceInput(state.lang" not in mic_match.group(0):
+    old_mic = mic_match.group(0)
+    body = old_mic[len("micBtn.onclick = () => {"):].rsplit("\\n};",1)[0]
+    native_handler = """micBtn.onclick = () => {
+  if (window.NovaAndroidBridge && typeof window.NovaAndroidBridge.startVoiceInput === 'function') {
+    if (window.showNovaListeningPopup) window.showNovaListeningPopup('NOVA is listening');
+    window.NovaAndroidBridge.startVoiceInput(state.lang === 'en' ? 'en' : 'hi');
+    return;
+  }
+""" + body + "\\n};"
+    s = s[:mic_match.start()] + native_handler + s[mic_match.end():]
+HTML.write_text(s,encoding="utf-8")
+print("Connected Android mic button to native speech recognition")
