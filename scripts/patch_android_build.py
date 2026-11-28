@@ -165,3 +165,98 @@ s = s.replace(mic_start, native_mic, 1)
 s = s.replace("    link.href = actionUrl;\n    link.target = '_blank';", "    link.href = actionUrl;\n    link.target = '_blank';\n    if (window.NovaAndroidBridge) link.onclick = ev => { ev.preventDefault(); window.NovaAndroidBridge.openUrl(actionUrl); };", 1)
 p.write_text(s, encoding="utf-8")
 print("Patched native TTS, Android speech recognition, and external app/link launching")
+
+
+# Native YouTube autoplay, flashlight/camera commands, and remove Android title bar.
+from pathlib import Path as P
+root = P("/tmp/nova-src/NOVA_v4.0_Complete")
+hp = root / "app/src/main/assets/index.html"
+s = hp.read_text(encoding="utf-8")
+old = """  if (/\\b(flashlight|torch|flash light)\\b/i.test(lower)) {
+    return { reply: '🔦 Browser se hardware torch directly control nahi hoti — Android CameraManager API ke saath Native APK mein chalegi.' };
+  }"""
+new = """  if (/\\b(flashlight|torch|flash light)\\b/i.test(lower)) {
+    const off = /\\b(off|band|disable)\\b/i.test(lower);
+    if (window.NovaAndroidBridge) {
+      const ok = window.NovaAndroidBridge.toggleTorch(!off);
+      return { reply: ok ? (off ? '🔦 Torch band kar di ✓' : '🔦 Torch on kar di ✓') : '⚠️ Torch unavailable hai; Camera permission allow karein.' };
+    }
+    return { reply: '⚠️ Torch ke liye NOVA Android app chahiye.' };
+  }
+  if (/\\b(open camera|camera kholo|camera khol|take photo|photo lo|selfie lo|camera)\\b/i.test(lower)) {
+    if (window.NovaAndroidBridge) { window.NovaAndroidBridge.openCamera(); return { reply: '📷 Camera khol diya ✓' }; }
+    return { reply: '⚠️ Camera ke liye NOVA Android app chahiye.' };
+  }"""
+if old in s: s = s.replace(old, new, 1)
+elif "toggleTorch(!off)" not in s: raise SystemExit("Torch command marker missing")
+needle = "    const watchUrl = " + chr(96) + "https://www.youtube.com/watch?v=" + chr(36) + "{picked.id}" + chr(96) + ";"
+if needle in s and "playYouTube(watchUrl)" not in s:
+    s = s.replace(needle, needle + "\n    if (window.NovaAndroidBridge) window.NovaAndroidBridge.playYouTube(watchUrl);", 1)
+    s = s.replace("YouTube par kholne ke liye neeche button tap karein.", "YouTube par gaana play kar rahi hoon…", 1)
+hp.write_text(s, encoding="utf-8")
+
+bp = root / "app/src/main/java/com/nova/companion/NovaAndroidBridge.kt"
+b = bp.read_text(encoding="utf-8")
+marker = "    @JavascriptInterface\n    fun openApp(appKey: String): Boolean {"
+methods = '''    @JavascriptInterface
+    fun playYouTube(url: String) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage("com.google.android.youtube")
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        } catch (_: Exception) { openUrl(url) }
+    }
+    @JavascriptInterface
+    fun openUrl(url: String) {
+        try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        catch (_: Exception) { Toast.makeText(context, "App/link nahi khul paya", Toast.LENGTH_SHORT).show() }
+    }
+    @JavascriptInterface
+    fun toggleTorch(enabled: Boolean): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
+        return try {
+            val manager = context.getSystemService(Context.CAMERA_SERVICE) as android.hardware.camera2.CameraManager
+            val id = manager.cameraIdList.firstOrNull {
+                manager.getCameraCharacteristics(it).get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+            } ?: return false
+            manager.setTorchMode(id, enabled)
+            true
+        } catch (_: SecurityException) {
+            (context as? MainActivity)?.requestCameraPermission()
+            false
+        } catch (_: Exception) { false }
+    }
+    @JavascriptInterface
+    fun openCamera() {
+        try { context.startActivity(Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        catch (_: Exception) { Toast.makeText(context, "Camera app nahi mili", Toast.LENGTH_SHORT).show() }
+    }
+
+'''
+if "fun playYouTube(url: String)" not in b:
+    if marker not in b: raise SystemExit("Bridge insertion marker missing")
+    b = b.replace(marker, methods + marker, 1)
+bp.write_text(b, encoding="utf-8")
+
+ap = root / "app/src/main/java/com/nova/companion/MainActivity.kt"
+a = ap.read_text(encoding="utf-8")
+if "fun requestCameraPermission()" not in a:
+    insert = '''    fun requestCameraPermission() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), 303)
+    }
+'''
+    marker = '    @Deprecated("Deprecated in Android")'
+    if marker not in a: raise SystemExit("Activity insertion marker missing")
+    a = a.replace(marker, insert + marker, 1)
+ap.write_text(a, encoding="utf-8")
+
+mp = root / "app/src/main/AndroidManifest.xml"
+m = mp.read_text(encoding="utf-8")
+if "android.permission.CAMERA" not in m:
+    m = m.replace('    <uses-permission android:name="android.permission.RECORD_AUDIO" />', '    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-feature android:name="android.hardware.camera" android:required="false" />')
+m = m.replace('android:label="NOVA AI Companion"', 'android:label="NOVA"')
+if 'android:theme="@android:style/Theme.Material.Light.NoActionBar"' not in m:
+    m = m.replace('<application\n', '<application\n        android:theme="@android:style/Theme.Material.Light.NoActionBar"\n')
+mp.write_text(m, encoding="utf-8")
+print("Patched direct YouTube playback, torch/camera commands, and hidden app title bar")
