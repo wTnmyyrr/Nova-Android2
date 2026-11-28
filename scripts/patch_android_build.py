@@ -416,3 +416,25 @@ if mic_match and "startVoiceInput(state.lang" not in mic_match.group(0):
     s = s[:mic_match.start()] + native_handler + s[mic_match.end():]
 HTML.write_text(s,encoding="utf-8")
 print("Connected Android mic button to native speech recognition")
+
+
+# Correctly locate the mic handler without a regex escape ambiguity.
+s = HTML.read_text(encoding="utf-8")
+mic_start = s.find("micBtn.onclick = () => {")
+if mic_start >= 0:
+    mic_end = s.find("\\n};", mic_start)
+    if mic_end >= 0:
+        mic_end += 3
+        old_mic = s[mic_start:mic_end]
+        if "startVoiceInput(state.lang" not in old_mic:
+            prefix = "micBtn.onclick = () => {"
+            body = old_mic[len(prefix):-3]
+            native = prefix + """
+  if (window.NovaAndroidBridge && typeof window.NovaAndroidBridge.startVoiceInput === 'function') {
+    if (window.showNovaListeningPopup) window.showNovaListeningPopup('NOVA is listening');
+    window.NovaAndroidBridge.startVoiceInput(state.lang === 'en' ? 'en' : 'hi');
+    return;
+  }""" + body + "\\n};"
+            s = s[:mic_start] + native + s[mic_end:]
+            HTML.write_text(s,encoding="utf-8")
+            print("Native Android mic handler installed")
