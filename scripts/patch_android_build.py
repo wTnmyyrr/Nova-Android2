@@ -269,19 +269,9 @@ old = '''    @JavascriptInterface fun openApp(appKey: String): Boolean {
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); context.startActivity(i); return true
     }'''
 new = '''    @JavascriptInterface fun openApp(appKey: String): Boolean {
-        val key = appKey.lowercase().trim()
-        val candidates = if (key.contains("free fire") || key.contains("freefire"))
-            listOf("com.dts.freefiremax", "com.dts.freefireth")
-        else listOfNotNull(packageMap[key])
-        for (pkg in candidates) {
-            try {
-                val launch = context.packageManager.getLaunchIntentForPackage(pkg) ?: continue
-                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(launch)
-                return true
-            } catch (_: Exception) {}
-        }
-        return false
+        val pkg = packageMap[appKey.lowercase().trim()] ?: return false
+        val i = context.packageManager.getLaunchIntentForPackage(pkg) ?: return false
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); context.startActivity(i); return true
     }'''
 if old in k: k = k.replace(old, new, 1)
 pattern = r'''    @JavascriptInterface\s+fun openCamera\(\)\s*\{.*?\n    \}'''
@@ -334,6 +324,8 @@ import re as RE
 root=P("/tmp/nova-src/NOVA_v4.0_Complete")
 bp=root/"app/src/main/java/com/nova/companion/NovaAndroidBridge.kt"
 k=bp.read_text(encoding="utf-8")
+# Remove earlier torch method before adding generalized bridge methods.
+k=RE.sub(r'    @JavascriptInterface\s+fun toggleTorch\(enabled: Boolean\): Boolean \{.*?\n    \}', '', k, count=1, flags=RE.S)
 for imp in ["import android.Manifest","import android.content.pm.PackageManager","import android.media.AudioManager","import android.hardware.camera2.CameraManager","import org.json.JSONArray","import org.json.JSONObject"]:
     if imp not in k: k=k.replace("import android.content.Context",imp+"\nimport android.content.Context",1)
 old='''    @JavascriptInterface fun openApp(appKey: String): Boolean {
@@ -371,7 +363,7 @@ new='''    private fun norm(v:String)=v.lowercase().replace(Regex("[^a-z0-9]"),"
     @JavascriptInterface fun toggleTorch(on:Boolean):Boolean=try {
         if(Build.VERSION.SDK_INT<23)return false
         val cm=context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-        val id=cm.cameraIdList.firstOrNull{cm.getCameraCharacteristics(it).get(CameraManager.TORCH_INFO_AVAILABLE)==true}?:return false
+        val id=cm.cameraIdList.firstOrNull{cm.getCameraCharacteristics(it).get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE)==true}?:return false
         cm.setTorchMode(id,on);true
     }catch(_:Exception){false}
     @JavascriptInterface fun adjustVolume(dir:String):Boolean=try {
