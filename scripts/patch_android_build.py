@@ -191,3 +191,50 @@ new='''  if (/\\b(volume up|increase volume|awaaz badhao|volume badhao)\\b/i.tes
 if old in s:s=s.replace(old,new,1)
 HTML.write_text(s,encoding="utf-8")
 print("Added volume controls and Android settings panels")
+
+
+# Extend permitted native controls: media volume, brightness and Android system panels.
+bridge_file=JAVA/"NovaAndroidBridge.kt"
+k=bridge_file.read_text(encoding="utf-8")
+if "import android.media.AudioManager" not in k:
+    k=k.replace("import android.widget.Toast","import android.widget.Toast\nimport android.media.AudioManager")
+if "fun deviceControl(command:String):String" not in k:
+    method=r'''
+ @JavascriptInterface fun deviceControl(command:String):String {
+  val c=command.lowercase()
+  return try {
+   when {
+    c.contains("volume up")||c.contains("volume badhao")||c.contains("awaaz badhao") -> { (context.getSystemService(Context.AUDIO_SERVICE) as AudioManager).adjustStreamVolume(AudioManager.STREAM_MUSIC,AudioManager.ADJUST_RAISE,AudioManager.FLAG_SHOW_UI); "🔊 Media volume badha diya." }
+    c.contains("volume down")||c.contains("volume kam")||c.contains("awaaz kam") -> { (context.getSystemService(Context.AUDIO_SERVICE) as AudioManager).adjustStreamVolume(AudioManager.STREAM_MUSIC,AudioManager.ADJUST_LOWER,AudioManager.FLAG_SHOW_UI); "🔉 Media volume kam kar diya." }
+    c.contains("mute")||c.contains("volume off") -> { (context.getSystemService(Context.AUDIO_SERVICE) as AudioManager).adjustStreamVolume(AudioManager.STREAM_MUSIC,AudioManager.ADJUST_MUTE,AudioManager.FLAG_SHOW_UI); "🔇 Media mute kar diya." }
+    c.contains("unmute")||c.contains("volume on") -> { (context.getSystemService(Context.AUDIO_SERVICE) as AudioManager).adjustStreamVolume(AudioManager.STREAM_MUSIC,AudioManager.ADJUST_UNMUTE,AudioManager.FLAG_SHOW_UI); "🔊 Media unmute kar diya." }
+    c.contains("brightness")||c.contains("screen light") -> {
+     if (Build.VERSION.SDK_INT>=23 && !Settings.System.canWrite(context)) { context.startActivity(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,Uri.parse("package:"+context.packageName)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); "⚙️ Brightness permission allow karein, phir command dobara boliye." }
+     else { val n=Regex("(\\d{1,3})").find(c)?.groupValues?.get(1)?.toIntOrNull(); val cur=Settings.System.getInt(context.contentResolver,Settings.System.SCREEN_BRIGHTNESS,128); val value=(n?.coerceIn(0,100)?.times(255)?.div(100) ?: (cur+if(c.contains("down")||c.contains("kam")) -25 else 25)).coerceIn(10,255); Settings.System.putInt(context.contentResolver,Settings.System.SCREEN_BRIGHTNESS,value); "☀️ Screen brightness update kar di." }
+    }
+    c.contains("wifi")||c.contains("wi fi")||c.contains("internet") -> { val i=if(Build.VERSION.SDK_INT>=29) Intent(Settings.Panel.ACTION_WIFI) else Intent(Settings.ACTION_WIFI_SETTINGS); i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); context.startActivity(i); "📶 Wi-Fi settings panel khol diya. Android security ke kaaran toggle aap confirm karein." }
+    c.contains("bluetooth") -> { val i=if(Build.VERSION.SDK_INT>=29) Intent(Settings.Panel.ACTION_BLUETOOTH) else Intent(Settings.ACTION_BLUETOOTH_SETTINGS); i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); context.startActivity(i); "🟦 Bluetooth panel khol diya. Toggle aap confirm karein." }
+    c.contains("hotspot") -> { context.startActivity(Intent(Settings.ACTION_TETHER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); "📡 Hotspot settings khol di." }
+    c.contains("airplane") -> { context.startActivity(Intent(Settings.ACTION_AIRPLANE_MODE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); "✈️ Airplane mode settings khol di." }
+    c.contains("screenshot") -> "📸 Android privacy ke kaaran silent screenshot nahi le sakti. Power + Volume Down use karein."
+    else -> "⚙️ Is device control ke liye supported system panel nahi mila."
+   }
+  } catch (_:Exception) { "⚠️ Device setting open/control nahi ho paayi." }
+ }
+'''
+    k=k.replace(" @JavascriptInterface fun toggleFloatingBubble()",method+"\n @JavascriptInterface fun toggleFloatingBubble()",1)
+bridge_file.write_text(k,encoding="utf-8")
+m=MANIFEST.read_text(encoding="utf-8")
+if "android.permission.WRITE_SETTINGS" not in m:
+    m=m.replace("    <uses-permission android:name=\"android.permission.INTERNET\" />","    <uses-permission android:name=\"android.permission.INTERNET\" />\n    <uses-permission android:name=\"android.permission.WRITE_SETTINGS\" />",1)
+MANIFEST.write_text(m,encoding="utf-8")
+old_device="""  if (/\\b(wifi|wi-fi|bluetooth|hotspot|airplane|brightness|volume|screenshot)\\b/i.test(lower)) {
+    return { reply: '⚙️ Android Chrome security ke kaaran browser system toggles/screenshot nahi le sakta — Native Android Companion APK mein supported hoga.' };
+  }"""
+new_device="""  if (/\\b(wifi|wi-fi|internet|bluetooth|hotspot|airplane|brightness|screen light|volume up|volume down|volume kam|volume badhao|awaaz kam|awaaz badhao|mute|unmute|screenshot)\\b/i.test(lower)) {
+    const result=window.NovaAndroidBridge?.deviceControl(lower);
+    return {reply:result || '⚠️ Native device control available nahi hai.'};
+  }"""
+if old_device in s:s=s.replace(old_device,new_device,1)
+HTML.write_text(s,encoding="utf-8")
+print("Added volume, brightness and Android system panel controls")
