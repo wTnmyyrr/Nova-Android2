@@ -207,11 +207,6 @@ methods = '''    @JavascriptInterface
         } catch (_: Exception) { openUrl(url) }
     }
     @JavascriptInterface
-    fun openUrl(url: String) {
-        try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-        catch (_: Exception) { Toast.makeText(context, "App/link nahi khul paya", Toast.LENGTH_SHORT).show() }
-    }
-    @JavascriptInterface
     fun toggleTorch(enabled: Boolean): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
         return try {
