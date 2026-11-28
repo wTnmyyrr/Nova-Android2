@@ -1,5 +1,11 @@
 from pathlib import Path
 ROOT=Path("/tmp/nova-src/NOVA_v4.0_Complete"); JAVA=ROOT/"app/src/main/java/com/nova/companion"; HTML=ROOT/"app/src/main/assets/index.html"; MANIFEST=ROOT/"app/src/main/AndroidManifest.xml"
+from shutil import copyfile
+icon_source=Path("app/src/main/res/drawable-nodpi/nova_launcher.png")
+if not icon_source.exists(): raise SystemExit("NOVA launcher icon asset missing from repository")
+icon_target=ROOT/"app/src/main/res/drawable-nodpi/nova_launcher.png"
+icon_target.parent.mkdir(parents=True,exist_ok=True)
+copyfile(icon_source,icon_target)
 s=HTML.read_text(encoding="utf-8"); marker="state = { ...state, ...JSON.parse(localStorage.getItem(settingsKey) || '{}') };"
 if "nova-ai-brain.hy1009568.workers.dev" not in s:s=s.replace(marker,marker+"\nif (!state.backendUrl) state.backendUrl='https://nova-ai-brain.hy1009568.workers.dev';",1)
 bridge=r'''package com.nova.companion
