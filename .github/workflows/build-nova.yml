@@ -29,8 +29,21 @@ jobs:
           PROJECT_DIR=/tmp/nova-src/NOVA_v4.0_Complete
           test -f "$PROJECT_DIR/app/src/main/AndroidManifest.xml"
           test -f "$PROJECT_DIR/app/src/main/assets/index.html"
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("/tmp/nova-src/NOVA_v4.0_Complete/app/src/main/assets/index.html")
+          s = p.read_text(encoding="utf-8")
+          marker = "state = { ...state, ...JSON.parse(localStorage.getItem(settingsKey) || '{}') };\n} catch {}"
+          if marker not in s:
+              raise SystemExit("Could not find NOVA settings initialization marker")
+          s = s.replace(marker, marker + "\n// Preconfigured NOVA Cloudflare AI backend\nif (!state.backendUrl) state.backendUrl = 'https://nova-ai-brain.hy1009568.workers.dev';", 1)
+          p.write_text(s, encoding="utf-8")
+          print("Configured NOVA Cloudflare Worker URL in Android WebView asset")
+          PY
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "Building from $PROJECT_DIR"
+          curl --fail --silent --show-error https://nova-ai-brain.hy1009568.workers.dev/health
 
       - name: Build Debug APK
         run: |
