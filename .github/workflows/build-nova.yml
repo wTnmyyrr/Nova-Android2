@@ -25,16 +25,10 @@ jobs:
 
       - name: Prepare project
         run: |
-          if [ -f NOVA_FINAL_FIXED.zip ]; then
-            unzip -q NOVA_FINAL_FIXED.zip -d /tmp/nova-src
-            PROJECT_DIR=/tmp/nova-src/NOVA_Android_Project
-          elif [ -f NOVA_Android_Project/settings.gradle ]; then
-            PROJECT_DIR=NOVA_Android_Project
-          else
-            FILE=$(find . -name settings.gradle -o -name settings.gradle.kts | head -n 1)
-            test -n "$FILE" || { echo "Gradle project not found"; exit 1; }
-            PROJECT_DIR=$(dirname "$FILE")
-          fi
+          unzip -q NOVA_Android_Studio_Project_FIXED.zip -d /tmp/nova-src
+          PROJECT_DIR=/tmp/nova-src/NOVA_v4.0_Complete
+          test -f "$PROJECT_DIR/app/src/main/AndroidManifest.xml"
+          test -f "$PROJECT_DIR/app/src/main/assets/index.html"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "Building from $PROJECT_DIR"
 
@@ -47,5 +41,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: NOVA-AI-Debug-APK
-          path: \${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
