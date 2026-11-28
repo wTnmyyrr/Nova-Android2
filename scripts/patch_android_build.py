@@ -255,3 +255,74 @@ if 'android:theme="@android:style/Theme.Material.Light.NoActionBar"' not in m:
     m = m.replace('<application\n', '<application\n        android:theme="@android:style/Theme.Material.Light.NoActionBar"\n')
 mp.write_text(m, encoding="utf-8")
 print("Patched direct YouTube playback, torch/camera commands, and hidden app title bar")
+
+# Fix app launch aliases and camera intent handling.
+from pathlib import Path as P
+import re as RE
+root = P("/tmp/nova-src/NOVA_v4.0_Complete")
+bp = root / "app/src/main/java/com/nova/companion/NovaAndroidBridge.kt"
+k = bp.read_text(encoding="utf-8")
+k = k.replace('"play store" to "com.android.vending"', '"play store" to "com.android.vending",\n        "free fire" to "com.dts.freefiremax",\n        "free fire max" to "com.dts.freefiremax",\n        "freefire" to "com.dts.freefiremax",\n        "freefire max" to "com.dts.freefiremax"')
+old = '''    @JavascriptInterface fun openApp(appKey: String): Boolean {
+        val pkg = packageMap[appKey.lowercase().trim()] ?: return false
+        val i = context.packageManager.getLaunchIntentForPackage(pkg) ?: return false
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); context.startActivity(i); return true
+    }'''
+new = '''    @JavascriptInterface fun openApp(appKey: String): Boolean {
+        val key = appKey.lowercase().trim()
+        val candidates = if (key.contains("free fire") || key.contains("freefire"))
+            listOf("com.dts.freefiremax", "com.dts.freefireth")
+        else listOfNotNull(packageMap[key])
+        for (pkg in candidates) {
+            try {
+                val launch = context.packageManager.getLaunchIntentForPackage(pkg) ?: continue
+                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(launch)
+                return true
+            } catch (_: Exception) {}
+        }
+        return false
+    }'''
+if old in k: k = k.replace(old, new, 1)
+pattern = r'''    @JavascriptInterface\s+fun openCamera\(\)\s*\{.*?\n    \}'''
+camera = '''    @JavascriptInterface fun openCamera(): Boolean {
+        val pm = context.packageManager
+        for (action in listOf("android.media.action.STILL_IMAGE_CAMERA", "android.media.action.IMAGE_CAPTURE")) {
+            try {
+                val intent = Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (intent.resolveActivity(pm) != null) {
+                    context.startActivity(intent)
+                    return true
+                }
+            } catch (_: Exception) {}
+        }
+        Toast.makeText(context, "Camera app installed/enabled nahi mil rahi", Toast.LENGTH_LONG).show()
+        return false
+    }'''
+k, n = RE.subn(pattern, camera, k, count=1, flags=RE.S)
+if n != 1: raise SystemExit("Could not replace native camera method")
+bp.write_text(k, encoding="utf-8")
+hp = root / "app/src/main/assets/index.html"
+h = hp.read_text(encoding="utf-8")
+h = h.replace("    { keys: ['playstore', 'play store'], name: 'Play Store', url: 'https://play.google.com/store' },", "    { keys: ['free fire max', 'freefire max', 'free fire', 'freefire'], name: 'Free Fire MAX', url: 'https://play.google.com/store/apps/details?id=com.dts.freefiremax' },\n    { keys: ['playstore', 'play store'], name: 'Play Store', url: 'https://play.google.com/store' },")
+old_cam = "    if (window.NovaAndroidBridge) { window.NovaAndroidBridge.openCamera(); return { reply: '📷 Camera khol diya ✓' }; }\n    return { reply: '⚠️ Camera ke liye NOVA Android app chahiye.' };"
+new_cam = "    if (window.NovaAndroidBridge && window.NovaAndroidBridge.openCamera()) return { reply: '📷 Camera open kar diya ✓' };\n    return { reply: '⚠️ Is phone par camera app launch nahi ho paayi. Default Camera app enabled hai ya nahi check karein.' };"
+h = h.replace(old_cam, new_cam, 1)
+hp.write_text(h, encoding="utf-8")
+mp = root / "app/src/main/AndroidManifest.xml"
+m = mp.read_text(encoding="utf-8")
+if "<queries>" not in m:
+    m = m.replace("    <application", '''    <queries>
+        <package android:name="com.dts.freefiremax" />
+        <package android:name="com.dts.freefireth" />
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.whatsapp" />
+        <package android:name="com.instagram.android" />
+        <package android:name="com.spotify.music" />
+        <package android:name="com.google.android.apps.maps" />
+        <intent><action android:name="android.media.action.STILL_IMAGE_CAMERA" /></intent>
+        <intent><action android:name="android.media.action.IMAGE_CAPTURE" /></intent>
+    </queries>
+    <application''', 1)
+mp.write_text(m, encoding="utf-8")
+print("Fixed Free Fire MAX launch, package visibility, and Camera intent fallback")
